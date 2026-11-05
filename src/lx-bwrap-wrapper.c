@@ -206,6 +206,7 @@ start_c(unsigned long *stack)
 	static const char gateway_name[] = "LX_PRIVATE_NETWORK_GATEWAY=";
 	static const char real_name[] = "LX_NETNS_REAL_BWRAP=";
 	static const char net[] = "--unshare-net";
+	static const char die_with_parent[] = "--die-with-parent";
 	static const char cap_add[] = "--cap-add";
 	static const char cap_net_admin[] = "CAP_NET_ADMIN";
 	static const char cap_setpcap[] = "CAP_SETPCAP";
@@ -225,6 +226,7 @@ start_c(unsigned long *stack)
 	lx_size_t out = 0;
 	lx_size_t i, j;
 	int private_net = 0;
+	int parent_death = 0;
 	int found_separator = 0;
 
 	for (i = 0; envp[i] != (void *)0; i++) {
@@ -245,7 +247,7 @@ start_c(unsigned long *stack)
 		fail("LX_PRIVATE_NETWORK_LINKS is empty");
 	if (gateway == (void *)0 || gateway[0] == '\0')
 		fail("LX_PRIVATE_NETWORK_GATEWAY is empty");
-	if (argc + 13 >= LX_MAX_ARGV)
+	if (argc + 14 >= LX_MAX_ARGV)
 		fail("bubblewrap argument list is too long");
 
 	lx_argv[out++] = (char *)real;
@@ -258,6 +260,8 @@ start_c(unsigned long *stack)
 				fail("bubblewrap command is missing");
 			if (payload_argv0 == (void *)0)
 				payload_argv0 = argv[i];
+			if (!parent_death)
+				lx_argv[out++] = (char *)die_with_parent;
 			if (!private_net)
 				lx_argv[out++] = (char *)net;
 			lx_argv[out++] = (char *)cap_add;
@@ -294,6 +298,8 @@ start_c(unsigned long *stack)
 		if (string_equal(argv[i], net) ||
 		    string_equal(argv[i], "--unshare-all"))
 			private_net = 1;
+		if (string_equal(argv[i], die_with_parent))
+			parent_death = 1;
 		for (j = 0; j <= (lx_size_t)operands; j++)
 			lx_argv[out++] = argv[i + j];
 		i += (lx_size_t)operands + 1;

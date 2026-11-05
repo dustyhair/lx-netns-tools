@@ -62,7 +62,8 @@ private=$(env -i LX_NETNS_REAL_BWRAP=/bin/echo \
     LX_NETNS_HELPER=/usr/libexec/lx-netns-tools/lx-netns-helper \
     LX_PRIVATE_NETWORK_LINKS=$links LX_PRIVATE_NETWORK_GATEWAY=$gateway \
     "$wrapper" --unshare-user -- /bin/true argument)
-expected='--unshare-user --unshare-net --cap-add CAP_NET_ADMIN '
+expected='--unshare-user --die-with-parent --unshare-net '
+expected+='--cap-add CAP_NET_ADMIN '
 expected+='--cap-add CAP_SETPCAP -- '
 expected+='/usr/libexec/lx-netns-tools/lx-netns-helper '
 expected+='--payload-argv0 /bin/true '
@@ -73,7 +74,8 @@ with_argv0=$(env -i LX_NETNS_REAL_BWRAP=/bin/echo \
     LX_NETNS_HELPER=/helper LX_PRIVATE_NETWORK_LINKS=$links \
     LX_PRIVATE_NETWORK_GATEWAY=$gateway "$wrapper" --unshare-net \
     --argv0 payload -- /bin/true)
-expected_argv0='--unshare-net --argv0 payload --cap-add CAP_NET_ADMIN '
+expected_argv0='--unshare-net --argv0 payload --die-with-parent '
+expected_argv0+='--cap-add CAP_NET_ADMIN '
 expected_argv0+='--cap-add CAP_SETPCAP -- /helper '
 expected_argv0+='--payload-argv0 payload '
 expected_argv0+="--links $links --gateway $gateway -- /bin/true"
@@ -83,7 +85,7 @@ separator_argv0=$(env -i LX_NETNS_REAL_BWRAP=/bin/echo \
     LX_NETNS_HELPER=/helper LX_PRIVATE_NETWORK_LINKS=$links \
     LX_PRIVATE_NETWORK_GATEWAY=$gateway "$wrapper" \
     --argv0 -- -- /bin/true)
-expected_separator_argv0='--argv0 -- --unshare-net '
+expected_separator_argv0='--argv0 -- --die-with-parent --unshare-net '
 expected_separator_argv0+='--cap-add CAP_NET_ADMIN --cap-add CAP_SETPCAP '
 expected_separator_argv0+='-- /helper --payload-argv0 -- '
 expected_separator_argv0+="--links $links --gateway $gateway -- /bin/true"
@@ -93,7 +95,7 @@ setenv_option=$(env -i LX_NETNS_REAL_BWRAP=/bin/echo \
     LX_NETNS_HELPER=/helper LX_PRIVATE_NETWORK_LINKS=$links \
     LX_PRIVATE_NETWORK_GATEWAY=$gateway "$wrapper" \
     --setenv TEST --unshare-net -- /bin/true)
-expected_setenv='--setenv TEST --unshare-net --unshare-net '
+expected_setenv='--setenv TEST --unshare-net --die-with-parent --unshare-net '
 expected_setenv+='--cap-add CAP_NET_ADMIN --cap-add CAP_SETPCAP -- '
 expected_setenv+='/helper --payload-argv0 /bin/true '
 expected_setenv+="--links $links --gateway $gateway -- /bin/true"
@@ -103,12 +105,19 @@ separator_operand=$(env -i LX_NETNS_REAL_BWRAP=/bin/echo \
     LX_NETNS_HELPER=/helper LX_PRIVATE_NETWORK_LINKS=$links \
     LX_PRIVATE_NETWORK_GATEWAY=$gateway "$wrapper" \
     --setenv TEST -- -- /bin/true)
-expected_separator_operand='--setenv TEST -- --unshare-net '
+expected_separator_operand='--setenv TEST -- --die-with-parent --unshare-net '
 expected_separator_operand+='--cap-add CAP_NET_ADMIN '
 expected_separator_operand+='--cap-add CAP_SETPCAP -- '
 expected_separator_operand+='/helper --payload-argv0 /bin/true '
 expected_separator_operand+="--links $links --gateway $gateway -- /bin/true"
 [[ "$separator_operand" == "$expected_separator_operand" ]]
+
+parent_death=$(env -i LX_NETNS_REAL_BWRAP=/bin/echo \
+    LX_NETNS_HELPER=/helper LX_PRIVATE_NETWORK_LINKS=$links \
+    LX_PRIVATE_NETWORK_GATEWAY=$gateway "$wrapper" \
+    --die-with-parent -- /bin/true)
+[[ "$parent_death" == '--die-with-parent --unshare-net '* ]]
+[[ "$parent_death" != *'--die-with-parent --die-with-parent'* ]]
 
 cat > "$work/config" <<EOF
 LX_PRIVATE_NETWORK_LINKS='$links'
