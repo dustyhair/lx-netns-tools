@@ -75,7 +75,7 @@ for source in "$system_source" "$loader_source" "$method_source" \
 	[[ -f "$source" ]] || die "missing bundle file: $source"
 done
 for command in awk cat chmod chown cmp cp dirname grep id ipadm ipf mdb mkdir \
-    mv rm svcadm svccfg svcs zonename; do
+    modinfo modload mv rm svcadm svccfg svcs zonename; do
 	whence "$command" >/dev/null || die "missing required command: $command"
 done
 [[ -d /zones/boot/boot ]] || die "active SmartOS boot image is unavailable"
@@ -184,10 +184,22 @@ gate_value()
 	    awk 'NF != 0 { value = $NF } END { print value }'
 }
 
+ensure_lx_brand_loaded()
+{
+	if modinfo | awk '$6 == "lx_brand" { found = 1 }
+	    END { exit !found }'; then
+		return
+	fi
+
+	modload /usr/kernel/brand/amd64/lx_brand ||
+		die "could not load the LX brand module"
+}
+
 check_runtime()
 {
 	typeset state forwarding ipf_running gate value
 
+	ensure_lx_brand_loaded
 	state=$(svcs -H -o state svc:/site/lx-private-network-prerequisites:default)
 	[[ $state == online ]] || die "prerequisite service state is $state"
 	forwarding=$(ipadm show-prop -c -o current -p forwarding ipv4)
@@ -224,6 +236,7 @@ svccfg import "$manifest_target"
 svcadm enable -s svc:/site/lx-private-network-prerequisites:default
 
 typeset reboot_required=0 gate value
+ensure_lx_brand_loaded
 for gate in "${gate_names[@]}"; do
 	value=$(gate_value "$gate")
 	if [[ $value != 1 && $value != 0x1 ]]; then
