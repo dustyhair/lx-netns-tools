@@ -1,0 +1,9 @@
+*
+* Experimental LX private-network namespace support.
+*
+set lx_brand:lx_seccomp_experimental=1
+set lx_brand:lx_userns_experimental=1
+set lx_brand:lx_mntns_experimental=1
+set lx_brand:lx_pidns_experimental=1
+set lx_brand:lx_ipcns_experimental=1
+set lx_brand:lx_netns_experimental=1

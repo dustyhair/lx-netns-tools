@@ -1,0 +1,31 @@
+#!/bin/ksh -p
+#
+# Persistent SmartOS host prerequisites for experimental LX private networks.
+# Kernel gates are loaded separately through the boot pool's /etc/system
+# override.  The stop method intentionally leaves shared host networking alone.
+#
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+unset LD_AUDIT LD_LIBRARY_PATH LD_LIBRARY_PATH_32 LD_LIBRARY_PATH_64
+unset LD_PRELOAD LD_PRELOAD_32 LD_PRELOAD_64
+PATH=/usr/sbin:/usr/bin:/sbin
+export PATH
+
+case ${1:-} in
+start)
+	svcadm enable -s svc:/network/ipfilter:default
+	ipadm set-prop -p forwarding=on ipv4
+	[[ $(ipadm show-prop -c -o current -p forwarding ipv4) == on ]]
+	[[ $(ipf -V | awk '/^Running:/ { print $2 }') == yes ]]
+	;;
+stop)
+	# These are shared host settings, not resources owned by this service.
+	;;
+*)
+	print -u2 "usage: $0 {start|stop}"
+	exit 2
+	;;
+esac

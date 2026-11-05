@@ -76,8 +76,26 @@ for a future release.
 
 ## Host setup
 
-The global-zone administrator must enable the six LX experimental gates in
-`/etc/system`, then reboot:
+The SmartOS global-zone root is a ramdisk. Editing `/etc/system` or persistent
+`ipadm` properties in the running global zone is not enough to survive a
+reboot.
+
+For a ZFS-booted standalone host, keep an administrator-owned `/etc/system`
+override under the boot pool and load it through `loader.conf.local`. The
+`smartos/` directory contains the two snippets. Merge each snippet once; do
+not replace an existing local loader configuration:
+
+```sh
+mkdir -p /zones/boot/custom/bootfs/etc
+test -f /zones/boot/custom/bootfs/etc/system || \
+    cp /etc/system /zones/boot/custom/bootfs/etc/system
+cat smartos/system.lx-private-network >> \
+    /zones/boot/custom/bootfs/etc/system
+cat smartos/loader-lx-private-network.conf >> \
+    /zones/boot/custom/loader.conf.local
+```
+
+The system snippet enables these six experimental gates:
 
 ```text
 set lx_brand:lx_seccomp_experimental=1
@@ -88,12 +106,23 @@ set lx_brand:lx_ipcns_experimental=1
 set lx_brand:lx_netns_experimental=1
 ```
 
-Enable IPv4 forwarding and IP Filter before starting a configured LX VM:
+Install the supplied transient SMF prerequisite service in persistent global-
+zone storage. It enables IP Filter, enables IPv4 forwarding, verifies both,
+and orders zone and `vmadmd` startup after those checks:
 
 ```sh
-ipadm set-prop -p forwarding=on ipv4
-svcadm enable svc:/network/ipfilter:default
+mkdir -p /opt/custom/bin /opt/custom/smf
+cp smartos/lx-private-network-prerequisites /opt/custom/bin/
+chmod 0555 /opt/custom/bin/lx-private-network-prerequisites
+cp smartos/lx-private-network-prerequisites.xml /opt/custom/smf/
+chmod 0444 /opt/custom/smf/lx-private-network-prerequisites.xml
+svccfg validate /opt/custom/smf/lx-private-network-prerequisites.xml
 ```
+
+Install or update the platform with `piadm` after creating the shared loader
+configuration, then reboot. `piadm` links the shared loader configuration into
+new boot images. For an existing boot image, create that relative
+`loader.conf.local` symlink yourself or reinstall the image before activation.
 
 The LX lifecycle hook checks these settings. It does not change global host
 state. Each enabled VM needs a distinct RFC 1918 `/24`. The egress datalink
