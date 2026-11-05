@@ -303,6 +303,7 @@ grep -q 'name=address/prefix' "$work/helper.out"
 if command -v shellcheck >/dev/null 2>&1; then
 	shellcheck "$launcher" "$0"
 fi
+/usr/bin/bash -n "$here/smartos/install-lx-private-network-host"
 if grep -R -i -n codex "$here" --exclude-dir=build --exclude=test.sh; then
 	printf '%s\n' 'application-specific name found in package source' >&2
 	exit 1

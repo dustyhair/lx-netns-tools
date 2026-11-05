@@ -82,20 +82,18 @@ The SmartOS global-zone root is a ramdisk. Editing `/etc/system` or persistent
 `ipadm` properties in the running global zone is not enough to survive a
 reboot.
 
-For a ZFS-booted standalone host, keep an administrator-owned `/etc/system`
-override under the boot pool and load it through `loader.conf.local`. The
-`smartos/` directory contains the two snippets. Merge each snippet once; do
-not replace an existing local loader configuration:
+For a ZFS-booted standalone host, run the supplied installer from the release
+bundle or source tree:
 
 ```sh
-mkdir -p /zones/boot/custom/bootfs/etc
-test -f /zones/boot/custom/bootfs/etc/system || \
-    cp /etc/system /zones/boot/custom/bootfs/etc/system
-cat smartos/system.lx-private-network >> \
-    /zones/boot/custom/bootfs/etc/system
-cat smartos/loader-lx-private-network.conf >> \
-    /zones/boot/boot/loader.conf.local
+pfexec smartos/install-lx-private-network-host install
 ```
+
+The installer preserves existing local configuration, adds each snippet once,
+and stops if it finds a partial installation. It keeps the `/etc/system`
+override under the boot pool, updates the active `loader.conf.local`, installs
+the SMF method and manifest under `/opt/custom`, imports the service, and
+enables it. Repeating the command is safe.
 
 The system snippet enables these six experimental gates:
 
@@ -108,23 +106,18 @@ set lx_brand:lx_ipcns_experimental=1
 set lx_brand:lx_netns_experimental=1
 ```
 
-Install the supplied transient SMF prerequisite service in persistent global-
-zone storage. It enables IP Filter, enables IPv4 forwarding, verifies both,
-and orders zone and `vmadmd` startup after those checks:
+The SMF service enables IP Filter and IPv4 forwarding, verifies both, and
+orders zone and `vmadmd` startup after those checks. `/zones/boot/boot`
+resolves to the active boot image. Rerun the installer after selecting a
+different boot image with `piadm`. Platform-only activation does not change
+that link.
+
+Reboot when the installer reports `reboot_required=1`, then verify the complete
+host setup before starting an enabled zone:
 
 ```sh
-mkdir -p /opt/custom/bin /opt/custom/smf
-cp smartos/lx-private-network-prerequisites /opt/custom/bin/
-chmod 0555 /opt/custom/bin/lx-private-network-prerequisites
-cp smartos/lx-private-network-prerequisites.xml /opt/custom/smf/
-chmod 0444 /opt/custom/smf/lx-private-network-prerequisites.xml
-svccfg validate /opt/custom/smf/lx-private-network-prerequisites.xml
+pfexec smartos/install-lx-private-network-host check
 ```
-
-`/zones/boot/boot` resolves to the active boot image. Reapply the loader snippet
-after installing or selecting a different boot image with `piadm`; platform-only
-activation does not change that link. Reboot after updating the loader file.
-Verify all six gates before starting an enabled zone.
 
 The LX lifecycle hook checks these settings. It does not change global host
 state. Each enabled VM needs a distinct RFC 1918 `/24`. The egress datalink

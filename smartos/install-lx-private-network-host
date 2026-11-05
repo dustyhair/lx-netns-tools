@@ -1,0 +1,238 @@
+#!/bin/ksh -p
+#
+# CDDL HEADER START
+#
+# The contents of this file are subject to the terms of the
+# Common Development and Distribution License (the "License").
+# You may not use this file except in compliance with the License.
+#
+# You can obtain a copy of the License at usr/src/OPENSOLARIS.LICENSE
+# or http://www.opensolaris.org/os/licensing.
+# See the License for the specific language governing permissions
+# and limitations under the License.
+#
+# When distributing Covered Code, include this CDDL HEADER in each
+# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
+# If applicable, add the following below this CDDL HEADER, with the
+# fields enclosed by brackets "[]" replaced with your own identifying
+# information: Portions Copyright [yyyy] [name of copyright owner]
+#
+# CDDL HEADER END
+#
+# Copyright 2026 Jonathan Wagner.
+#
+# Install persistent SmartOS host prerequisites for LX private networks.
+#
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+unset LD_AUDIT LD_LIBRARY_PATH LD_LIBRARY_PATH_32 LD_LIBRARY_PATH_64
+unset LD_PRELOAD LD_PRELOAD_32 LD_PRELOAD_64
+PATH=/usr/sbin:/usr/bin:/sbin
+export PATH
+
+typeset script_dir mode temporary=
+typeset system_source loader_source method_source manifest_source
+typeset system_target loader_target method_target manifest_target
+typeset -a gate_names
+
+gate_names=(seccomp userns mntns pidns ipcns netns)
+script_dir=$(cd "$(dirname "$0")" && pwd)
+mode=${1:-install}
+
+system_source=$script_dir/system.lx-private-network
+loader_source=$script_dir/loader-lx-private-network.conf
+method_source=$script_dir/lx-private-network-prerequisites
+manifest_source=$script_dir/lx-private-network-prerequisites.xml
+
+system_target=/zones/boot/custom/bootfs/etc/system
+loader_target=/zones/boot/boot/loader.conf.local
+method_target=/opt/custom/bin/lx-private-network-prerequisites
+manifest_target=/opt/custom/smf/lx-private-network-prerequisites.xml
+
+cleanup()
+{
+	[[ -z "$temporary" || ! -e "$temporary" ]] || rm -f "$temporary"
+}
+
+die()
+{
+	print -u2 "install-lx-private-network-host: $*"
+	exit 1
+}
+
+trap cleanup EXIT HUP INT TERM
+
+[[ $mode == install || $mode == check ]] ||
+	die "usage: $0 [install|check]"
+[[ $(id -u) == 0 ]] || die "must run in the SmartOS global zone as root"
+[[ $(zonename) == global ]] || die "must run in the SmartOS global zone"
+
+for source in "$system_source" "$loader_source" "$method_source" \
+    "$manifest_source"; do
+	[[ -f "$source" ]] || die "missing bundle file: $source"
+done
+for command in awk cat chmod chown cmp cp dirname grep id ipadm ipf mdb mkdir \
+    mv rm svcadm svccfg svcs zonename; do
+	whence "$command" >/dev/null || die "missing required command: $command"
+done
+[[ -d /zones/boot/boot ]] || die "active SmartOS boot image is unavailable"
+
+snippet_counts()
+{
+	typeset source=$1 target=$2 line
+	typeset matched=0 total=0
+
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		case "$line" in
+		''|'#'*|'*'*)
+			continue
+			;;
+		esac
+		(( total += 1 ))
+		if [[ -f "$target" ]] && grep -F -x "$line" "$target" >/dev/null;
+		then
+			(( matched += 1 ))
+		fi
+	done < "$source"
+	print "$matched $total"
+}
+
+check_snippet()
+{
+	typeset source=$1 target=$2 label=$3 counts matched total
+
+	[[ -f "$target" ]] || die "$label is missing: $target"
+	counts=$(snippet_counts "$source" "$target")
+	set -- $counts
+	matched=$1
+	total=$2
+	(( total > 0 && matched == total )) ||
+		die "$label is incomplete in $target"
+}
+
+ensure_snippet()
+{
+	typeset source=$1 target=$2 label=$3 base=${4:-}
+	typeset counts matched total
+
+	mkdir -p "$(dirname "$target")"
+	if [[ ! -f "$target" ]]; then
+		if [[ -n "$base" ]]; then
+			cp "$base" "$target"
+		else
+			: > "$target"
+		fi
+		chown root:sys "$target"
+		chmod 0644 "$target"
+		print "created $target"
+	fi
+
+	counts=$(snippet_counts "$source" "$target")
+	set -- $counts
+	matched=$1
+	total=$2
+	(( total > 0 )) || die "$label snippet has no directives"
+	if (( matched == total )); then
+		print "$label already installed"
+		return
+	fi
+	(( matched == 0 )) ||
+		die "$label is partially installed in $target; reconcile it manually"
+
+	temporary=$target.lxpn.$$
+	cp "$target" "$temporary"
+	{
+		print
+		cat "$source"
+		print
+	} >> "$temporary"
+	chown root:sys "$temporary"
+	chmod 0644 "$temporary"
+	mv "$temporary" "$target"
+	temporary=
+	print "installed $label in $target"
+}
+
+install_file()
+{
+	typeset source=$1 target=$2 mode=$3
+
+	mkdir -p "$(dirname "$target")"
+	if [[ -f "$target" ]] && cmp -s "$source" "$target"; then
+		chown root:sys "$target"
+		chmod "$mode" "$target"
+		print "already installed: $target"
+		return
+	fi
+	temporary=$target.lxpn.$$
+	cp "$source" "$temporary"
+	chown root:sys "$temporary"
+	chmod "$mode" "$temporary"
+	mv "$temporary" "$target"
+	temporary=
+	print "installed $target"
+}
+
+gate_value()
+{
+	typeset gate=$1
+
+	print "lx_brand\`lx_${gate}_experimental/D" | mdb -k |
+	    awk 'NF != 0 { value = $NF } END { print value }'
+}
+
+check_runtime()
+{
+	typeset state forwarding ipf_running gate value
+
+	state=$(svcs -H -o state svc:/site/lx-private-network-prerequisites:default)
+	[[ $state == online ]] || die "prerequisite service state is $state"
+	forwarding=$(ipadm show-prop -c -o current -p forwarding ipv4)
+	[[ $forwarding == on ]] || die "IPv4 forwarding is not enabled"
+	ipf_running=$(ipf -V | awk '/^Running:/ { print $2 }')
+	[[ $ipf_running == yes ]] || die "IP Filter is not running"
+	for gate in "${gate_names[@]}"; do
+		value=$(gate_value "$gate")
+		[[ $value == 1 || $value == 0x1 ]] ||
+			die "lx_${gate}_experimental is not enabled; reboot required"
+	done
+}
+
+if [[ $mode == check ]]; then
+	check_snippet "$system_source" "$system_target" "kernel gate configuration"
+	check_snippet "$loader_source" "$loader_target" "loader configuration"
+	cmp -s "$method_source" "$method_target" ||
+		die "installed SMF method does not match the bundle"
+	cmp -s "$manifest_source" "$manifest_target" ||
+		die "installed SMF manifest does not match the bundle"
+	svccfg validate "$manifest_target"
+	check_runtime
+	print "LX_PRIVATE_NETWORK_HOST_CHECK_OK"
+	exit 0
+fi
+
+svccfg validate "$manifest_source"
+ensure_snippet "$system_source" "$system_target" \
+	"kernel gate configuration" /etc/system
+ensure_snippet "$loader_source" "$loader_target" "loader configuration"
+install_file "$method_source" "$method_target" 0555
+install_file "$manifest_source" "$manifest_target" 0444
+svccfg import "$manifest_target"
+svcadm enable -s svc:/site/lx-private-network-prerequisites:default
+
+typeset reboot_required=0 gate value
+for gate in "${gate_names[@]}"; do
+	value=$(gate_value "$gate")
+	if [[ $value != 1 && $value != 0x1 ]]; then
+		reboot_required=1
+	fi
+done
+if (( reboot_required == 0 )); then
+	check_runtime
+else
+	print "reboot required before starting an LX private-network zone"
+fi
+print "LX_PRIVATE_NETWORK_HOST_INSTALL_OK reboot_required=$reboot_required"
