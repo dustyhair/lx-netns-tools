@@ -37,11 +37,11 @@ route, waits for duplicate-address detection, and drops `CAP_NET_ADMIN` and
 Networked `lx-bwrap` invocations are serialized for their complete lifetime,
 including a one-second teardown grace period. The launcher keeps its lock file
 descriptor out of the payload, forwards HUP, INT, and TERM to bubblewrap, and
-retains the lock through the grace period. It also forces bubblewrap's
-`--die-with-parent` behavior so a terminated or killed bubblewrap process does
-not leave the sandbox payload running. `SIGKILL` of the launcher itself bypasses
-signal forwarding and the grace period; the next launch may wait for the VNIC
-to become available until the surviving bubblewrap process exits.
+retains the lock through the grace period. Before it executes bubblewrap, the
+wrapper arms a Linux parent-death signal. It also forces bubblewrap's
+`--die-with-parent` behavior. Killing the launcher therefore kills bubblewrap
+and the payload. `SIGKILL` still bypasses the one-second grace period, so the
+next launch may wait briefly for host VNIC teardown.
 
 Use a SmartOS platform that includes the LX detached-network-stack concurrency
 fixes. Older platforms can panic if one VNIC-backed network namespace starts

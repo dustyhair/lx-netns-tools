@@ -37,9 +37,25 @@ typedef struct lx_option {
 #define	LX_SYS_WRITE	1
 #define	LX_SYS_EXECVE	59
 #define	LX_SYS_EXIT	60
+#define	LX_SYS_GETPPID	110
+#define	LX_SYS_PRCTL	157
+#define	LX_PR_SET_PDEATHSIG	1
+#define	LX_SIGKILL	9
 #define	LX_MAX_ARGV	4096
 
 static char *lx_argv[LX_MAX_ARGV];
+
+static long
+lx_syscall0(long number)
+{
+	long result;
+
+	__asm__ volatile("syscall"
+	    : "=a" (result)
+	    : "a" (number)
+	    : "rcx", "r11", "memory");
+	return (result);
+}
 
 /*
  * Operand counts from bubblewrap 0.11.2 parse_args_recurse().  Unknown
@@ -137,6 +153,22 @@ lx_syscall3(long number, long first, long second, long third)
 	return (result);
 }
 
+static long
+lx_syscall5(long number, long first, long second, long third, long fourth,
+    long fifth)
+{
+	register long arg4 __asm__("r10") = fourth;
+	register long arg5 __asm__("r8") = fifth;
+	long result;
+
+	__asm__ volatile("syscall"
+	    : "=a" (result)
+	    : "a" (number), "D" (first), "S" (second), "d" (third),
+	    "r" (arg4), "r" (arg5)
+	    : "rcx", "r11", "memory");
+	return (result);
+}
+
 static lx_size_t
 string_length(const char *value)
 {
@@ -196,6 +228,21 @@ fail(const char *message)
 	__builtin_unreachable();
 }
 
+static void
+arm_parent_death_signal(void)
+{
+	long parent;
+
+	parent = lx_syscall0(LX_SYS_GETPPID);
+	if (parent <= 1)
+		fail("launcher exited before parent-death signaling was armed");
+	if (lx_syscall5(LX_SYS_PRCTL, LX_PR_SET_PDEATHSIG, LX_SIGKILL,
+	    0, 0, 0) != 0)
+		fail("cannot arm parent-death signaling");
+	if (lx_syscall0(LX_SYS_GETPPID) != parent)
+		fail("launcher exited while parent-death signaling was armed");
+}
+
 void start_c(unsigned long *) __attribute__((noreturn, used));
 
 void
@@ -228,6 +275,8 @@ start_c(unsigned long *stack)
 	int private_net = 0;
 	int parent_death = 0;
 	int found_separator = 0;
+
+	arm_parent_death_signal();
 
 	for (i = 0; envp[i] != (void *)0; i++) {
 		if (string_prefix(envp[i], real_name))

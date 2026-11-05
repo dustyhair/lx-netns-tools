@@ -58,6 +58,19 @@ wait_for_path()
 	return 1
 }
 
+wait_for_pid_exit()
+{
+	local pid=$1
+	local attempt
+
+	for ((attempt = 0; attempt < 500; attempt++)); do
+		kill -0 "$pid" 2>/dev/null || return 0
+		/usr/bin/sleep 0.01
+	done
+	printf 'timed out waiting for PID %s to exit\n' "$pid" >&2
+	return 1
+}
+
 private=$(env -i LX_NETNS_REAL_BWRAP=/bin/echo \
     LX_NETNS_HELPER=/usr/libexec/lx-netns-tools/lx-netns-helper \
     LX_PRIVATE_NETWORK_LINKS=$links LX_PRIVATE_NETWORK_GATEWAY=$gateway \
@@ -118,6 +131,30 @@ parent_death=$(env -i LX_NETNS_REAL_BWRAP=/bin/echo \
     --die-with-parent -- /bin/true)
 [[ "$parent_death" == '--die-with-parent --unshare-net '* ]]
 [[ "$parent_death" != *'--die-with-parent --die-with-parent'* ]]
+
+cat > "$work/pdeath-probe" <<'EOF'
+#!/usr/bin/bash
+: > "$LX_NETNS_TEST_DIR/pdeath-entered"
+while :; do
+	/usr/bin/sleep 1
+done
+EOF
+chmod 755 "$work/pdeath-probe"
+/usr/bin/bash -c '
+	env -i LX_NETNS_TEST_DIR="$2" \
+	    LX_NETNS_REAL_BWRAP="$2/pdeath-probe" \
+	    LX_NETNS_HELPER=/helper LX_PRIVATE_NETWORK_LINKS="$3" \
+	    LX_PRIVATE_NETWORK_GATEWAY="$4" "$1" -- /bin/true &
+	child=$!
+	printf "%s\n" "$child" > "$2/pdeath-pid"
+	for ((attempt = 0; attempt < 500; attempt++)); do
+		[[ -e "$2/pdeath-entered" ]] && exit 0
+		/usr/bin/sleep 0.01
+	done
+	exit 1
+' pdeath-parent "$wrapper" "$work" "$links" "$gateway"
+pdeath_pid=$(<"$work/pdeath-pid")
+wait_for_pid_exit "$pdeath_pid"
 
 cat > "$work/config" <<EOF
 LX_PRIVATE_NETWORK_LINKS='$links'
