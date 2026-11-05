@@ -23,12 +23,14 @@ bubblewrap arguments:
 ```sh
 lx-bwrap \
     --unshare-user \
-    --ro-bind /usr /usr \
-    --ro-bind /etc /etc \
-    --dev-bind /dev /dev \
-    --proc /proc \
+    --ro-bind / / \
     -- /usr/bin/curl -I https://example.com/
 ```
+
+Use a full-root bind on SmartOS LX.  Partial-root layouts such as separate
+`/usr`, `/etc`, `/dev`, and `/proc` mounts do not yet reconstruct a usable
+root in an LX mount namespace.  Add narrower writable mounts after the
+full-root bind when the payload needs them.
 
 `lx-bwrap` adds `--unshare-net` if needed. The helper claims the first
 available assigned VNIC, brings it up, adds its IPv4 address and default

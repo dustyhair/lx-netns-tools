@@ -333,8 +333,9 @@ drop_setup_capabilities(void)
 	size_t i;
 
 	for (i = 0; i < sizeof (capabilities) / sizeof (capabilities[0]); i++) {
+		/* SmartOS LX does not implement ambient capabilities. */
 		if (prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_LOWER,
-		    capabilities[i], 0, 0) == -1)
+		    capabilities[i], 0, 0) == -1 && errno != EINVAL)
 			fail_errno("cannot lower a private network setup "
 			    "capability");
 		if (prctl(PR_CAPBSET_DROP, capabilities[i], 0, 0, 0) == -1)
@@ -358,12 +359,20 @@ drop_setup_capabilities(void)
 	for (i = 0; i < sizeof (capabilities) / sizeof (capabilities[0]); i++) {
 		unsigned int word = capabilities[i] / 32;
 		uint32_t bit = UINT32_C(1) << (capabilities[i] % 32);
+		int ambient;
+
+		ambient = prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET,
+		    capabilities[i], 0, 0);
+		if (ambient == -1 && errno == EINVAL)
+			ambient = 0;
+		else if (ambient == -1)
+			fail_errno("cannot verify a private network setup "
+			    "ambient capability");
 
 		if (((data[word].effective | data[word].permitted |
 		    data[word].inheritable) & bit) != 0 ||
 		    prctl(PR_CAPBSET_READ, capabilities[i], 0, 0, 0) != 0 ||
-		    prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_IS_SET,
-		    capabilities[i], 0, 0) != 0) {
+		    ambient != 0) {
 			errno = EPERM;
 			fail_errno("private network setup capability survived");
 		}
