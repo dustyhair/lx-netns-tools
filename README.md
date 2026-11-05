@@ -92,7 +92,7 @@ test -f /zones/boot/custom/bootfs/etc/system || \
 cat smartos/system.lx-private-network >> \
     /zones/boot/custom/bootfs/etc/system
 cat smartos/loader-lx-private-network.conf >> \
-    /zones/boot/custom/loader.conf.local
+    /zones/boot/boot/loader.conf.local
 ```
 
 The system snippet enables these six experimental gates:
@@ -119,10 +119,10 @@ chmod 0444 /opt/custom/smf/lx-private-network-prerequisites.xml
 svccfg validate /opt/custom/smf/lx-private-network-prerequisites.xml
 ```
 
-Install or update the platform with `piadm` after creating the shared loader
-configuration, then reboot. `piadm` links the shared loader configuration into
-new boot images. For an existing boot image, create that relative
-`loader.conf.local` symlink yourself or reinstall the image before activation.
+`/zones/boot/boot` resolves to the active boot image. Reapply the loader snippet
+after installing or selecting a different boot image with `piadm`; platform-only
+activation does not change that link. Reboot after updating the loader file.
+Verify all six gates before starting an enabled zone.
 
 The LX lifecycle hook checks these settings. It does not change global host
 state. Each enabled VM needs a distinct RFC 1918 `/24`. The egress datalink
