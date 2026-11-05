@@ -72,6 +72,12 @@ make deb
 make xbps
 ```
 
+The `package` GitHub Actions job builds and tests the helpers in a pinned
+Debian 12 container with glibc 2.36. It creates the Debian package there, then
+uses a pinned Void container only to wrap that same tested package root in
+XBPS format. Both package formats therefore contain the same binaries. The job
+publishes the packages and their SHA-256 checksums as a workflow artifact.
+
 The package depends on `util-linux` for `flock`. The `deb` target requires
 `dpkg-deb`, and the `xbps` target requires `xbps-create`. The helper is linked
 statically with the libc selected by `CC`; building on Void does not by itself

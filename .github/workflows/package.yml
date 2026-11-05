@@ -1,0 +1,88 @@
+name: package
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Build and test Debian package root
+        env:
+          BUILD_IMAGE: python@sha256:a5bab0ff300f91231c2e68bf73a8a8d60762ac39ce1c50eaf6803e4c38a9062b
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "$PWD:/src" \
+            --workdir /src \
+            "$BUILD_IMAGE" \
+            bash -euxo pipefail -c '
+              libc_version=$(ldd --version 2>&1)
+              printf "%s\n" "$libc_version" | grep -F "GLIBC 2.36"
+              make clean
+              make deb
+              make root
+            '
+
+      - name: Package the tested root for Void Linux
+        env:
+          XBPS_IMAGE: ghcr.io/void-linux/void-glibc@sha256:c50f2eee799c588fa9ec00294990b642dcd6223beeddd91e95fa0ebbfd940785
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "$PWD:/src" \
+            --workdir /src \
+            --entrypoint /bin/sh \
+            "$XBPS_IMAGE" \
+            -euxc '
+              version=$(sed -n "s/^VERSION = //p" Makefile)
+              revision=$(sed -n "s/^XBPS_REVISION = //p" Makefile)
+              mkdir -p build/xbps
+              cd build/xbps
+              xbps-create -A x86_64 \
+                -n "lx-netns-tools-${version}_${revision}" \
+                -s "SmartOS LX private network namespace tools" \
+                -l CDDL-1.0 \
+                -m "Jonathan Wagner <dustyhair@gmail.com>" \
+                -D "bash>=0 bubblewrap>=0 util-linux>=0" \
+                ../root
+            '
+
+      - name: Record package checksums
+        run: |
+          deb=(build/lx-netns-tools_*_amd64.deb)
+          xbps=(build/xbps/lx-netns-tools-*.x86_64.xbps)
+          test "${#deb[@]}" -eq 1
+          test "${#xbps[@]}" -eq 1
+          mkdir -p build/verify/deb build/verify/xbps
+          dpkg-deb -x "${deb[0]}" build/verify/deb
+          tar -xf "${xbps[0]}" -C build/verify/xbps
+          cmp build/verify/deb/usr/bin/lx-bwrap \
+            build/verify/xbps/usr/bin/lx-bwrap
+          cmp build/verify/deb/usr/libexec/lx-netns-tools/lx-bwrap-wrapper \
+            build/verify/xbps/usr/libexec/lx-netns-tools/lx-bwrap-wrapper
+          cmp build/verify/deb/usr/libexec/lx-netns-tools/lx-netns-helper \
+            build/verify/xbps/usr/libexec/lx-netns-tools/lx-netns-helper
+          test ! -e build/verify/xbps/DEBIAN
+          sha256sum "${deb[0]}" "${xbps[0]}" > build/SHA256SUMS
+          cat build/SHA256SUMS
+
+      - name: Upload packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lx-netns-tools-packages
+          path: |
+            build/lx-netns-tools_*_amd64.deb
+            build/xbps/lx-netns-tools-*.x86_64.xbps
+            build/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
