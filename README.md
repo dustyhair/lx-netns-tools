@@ -118,9 +118,14 @@ location changed in 0.1.4.
 ## Checks and recovery
 
 Run `lx_private_network status` in the global zone to list active deployments.
-If a VM stop leaves `cleanup_pending` state, retry the normal VM stop or run the
-brand cleanup hook after confirming the VM is stopped. Do not delete global
-IP Filter rules, NAT rules, datalinks, or files under
+If a VM stop leaves `cleanup_pending` state, retry the normal VM stop. If the VM
+is already stopped, run the cleanup hook with the exact UUID and zone path:
+
+```sh
+/usr/lib/brand/lx/lx_private_network cleanup UUID /zones/UUID
+```
+
+Do not delete global IP Filter rules, NAT rules, datalinks, or files under
 `/var/run/lx-private-network` by hand.
 
 Private networking is experimental. It provides routed IPv4 and source NAT.
